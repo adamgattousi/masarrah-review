@@ -221,9 +221,17 @@
   // for the current price, and a bag the shop no longer sells (hidden, deleted, out of stock) is skipped.
   // If the shop can't be reached in time, the cards show without a price rather than an old one.
   var UTM = '?utm_source=review&utm_medium=sms&utm_campaign=avis';
-  // The price the shop's product page shows: with a bundle offer (1 / 2 / 3 sacs) it is the default option's
-  // price (that option's compare price, usually 0, is the only crossed-out one); without one, the product price
-  // with nothing crossed out (the shop page shows none). A 404/410 means the shop no longer has the bag: skipped.
+  // The price the shop's product page shows (checked 2026-11-23): with a bundle offer (1 / 2 / 3 sacs), the default
+  // option's price and compare price; without one, the default colour's price and compare price (a colour with no
+  // compare price shows nothing crossed out), else the product's. A 404/410 means the shop no longer has the bag.
+  function shown(d, sells) {
+    var o = (d.bundles && d.bundles.options) || [], b = null, i;
+    for (i = 0; i < o.length && !b; i++) if (o[i] && o[i].default) b = o[i];
+    for (i = 0; i < o.length && !b; i++) if (o[i] && +o[i].quantity === 1) b = o[i];
+    if (!b) { var v = d.newVariants || []; for (i = 0; i < v.length && !b; i++) if (v[i] && v[i].default) b = v[i]; if (!b && v.length) b = v[0]; }
+    if (!b || !(+b.price > 0)) return { sells: sells, price: +d.price, was: +d.comparePrice || 0 };
+    return { sells: sells, price: +b.price, was: +b.comparePrice || 0 };
+  }
   function live(slug) {
     return new Promise(function (done) {
       var ctl = window.AbortController ? new AbortController() : null, over = false;
@@ -238,10 +246,7 @@
             if (!m) throw 0;
             var d = JSON.parse(m[1]), st = d.newStock || {};
             var sells = d.status === 'shown' && !d.isDeleted && !(d.trackStock && st.outOfStock && !st.continueSellingWhenOutOfStock);
-            var o = (d.bundles && d.bundles.options) || [], b = null;
-            for (var i = 0; i < o.length && !b; i++) if (o[i] && o[i].default) b = o[i];
-            for (i = 0; i < o.length && !b; i++) if (o[i] && +o[i].quantity === 1) b = o[i];
-            finish({ sells: sells, price: b ? +b.price : +d.price, was: b ? +b.comparePrice || 0 : 0 });
+            finish(shown(d, sells));
           });
         })
         .catch(function () { finish(null); });
