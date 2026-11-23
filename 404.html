@@ -40,9 +40,15 @@
   .btn:active { transform: scale(.98); }
   .btn[disabled] { opacity: .4; cursor: default; }
   .note { font-size: 12.5px; line-height: 1.5; color: var(--muted); margin: 12px 2px 0; text-align: center; }
+  .also { width: 100%; margin-top: 28px; text-align: left; }
+  .also h2 { font-family: "Cormorant Garamond", Georgia, serif; font-weight: 600; color: var(--burgundy); font-size: 26px; line-height: 1.1; margin: 0 0 12px; text-align: center; }
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  .grid a { display: block; text-decoration: none; color: var(--text); background: #fff; border-radius: 18px; padding: 10px; box-shadow: 0 6px 18px rgba(128,0,32,.06); font-size: 14px; font-weight: 500; text-align: center; }
-  .grid img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 12px; background: var(--blush); margin-bottom: 6px; }
+  .grid a { display: flex; flex-direction: column; text-decoration: none; color: var(--text); background: #fff; border-radius: 18px; padding: 8px 8px 12px; box-shadow: 0 6px 18px rgba(128,0,32,.06); font-size: 14px; font-weight: 500; line-height: 1.3; text-align: center; transition: transform .12s ease; }
+  .grid a:active { transform: scale(.97); }
+  .grid img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 12px; background: var(--blush); margin-bottom: 8px; display: block; }
+  .grid .nm { flex: 1; padding: 0 2px; overflow-wrap: anywhere; }
+  .grid .go { margin-top: 8px; font-size: 13px; font-weight: 600; color: var(--burgundy); }
+  .also .all { margin-top: 12px; background: #fff; color: var(--burgundy); border: 1.5px solid var(--blush-deep); }
   .done { text-align: center; padding: 8px 4px; }
   .done h2 { font-family: "Cormorant Garamond", Georgia, serif; color: var(--burgundy); font-size: 28px; margin: 6px 0; }
   .done p { color: var(--muted); line-height: 1.5; margin: 6px 0; }
@@ -95,6 +101,12 @@
     <h2>Merci !</h2>
     <p>Ton avis est bien reçu. Il sera sur la page du sac d'ici quelques minutes.</p>
     <p>Tu veux aussi montrer ton sac ? <a href="https://story.masarrah.shop/" style="color:var(--burgundy);font-weight:600">Partage-le en story</a></p>
+  </section>
+
+  <section class="also" id="also" hidden aria-labelledby="alsoTitle">
+    <h2 id="alsoTitle">Tu vas aussi aimer</h2>
+    <div class="grid" id="alsoGrid"></div>
+    <a class="btn all" id="alsoAll" href="https://masarrah.shop/">Voir toute la boutique</a>
   </section>
 
   <footer>Masarrah · <a href="https://masarrah.shop">masarrah.shop</a></footer>
@@ -201,11 +213,38 @@
     $('form').hidden = false;
   }
 
+  // "Tu vas aussi aimer": up to 4 other bags from masarrah.shop, chosen by review-map.js for each bag (its related
+  // products in Converty, then the same category). Without a known bag: the first 4 of the shop. No prices here
+  // (this list is not live; the shop page shows the current price).
+  var UTM = '?utm_source=review&utm_medium=sms&utm_campaign=avis';
+  function showAlso(j, k) {
+    var ps = j.products || {}, own = k && ps[k], picks = [];
+    var ok = function (x) { var p = ps[x]; return p && !p.gone && p.slug && x !== k && picks.indexOf(x) < 0; };
+    ((own && own.also) || []).forEach(function (x) { if (ok(x)) picks.push(x); });
+    Object.keys(ps).forEach(function (x) { if (picks.length < 4 && ok(x)) picks.push(x); });
+    picks = picks.slice(0, 4);
+    if (picks.length < 2) return;
+    var g = $('alsoGrid'); g.textContent = '';
+    picks.forEach(function (x) {
+      var p = ps[x], a = document.createElement('a');
+      a.href = 'https://masarrah.shop/product/' + encodeURIComponent(p.slug) + UTM;
+      var im = document.createElement('img');
+      im.src = p.img || '/logo.webp'; im.alt = ''; im.loading = 'lazy'; im.decoding = 'async'; im.width = 180; im.height = 180;
+      im.onerror = function () { this.onerror = null; this.src = '/logo.webp'; };
+      var nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = p.name;
+      var go = document.createElement('span'); go.className = 'go'; go.textContent = 'Voir le sac ›';
+      a.appendChild(im); a.appendChild(nm); a.appendChild(go); g.appendChild(a);
+    });
+    $('alsoAll').href = 'https://masarrah.shop/' + UTM;
+    $('also').hidden = false;
+  }
+
   fetch('/p.json', { cache: 'no-cache' }).then(function (r) { return r.json(); }).then(function (j) {
     data = j;
     var p = key && j.products[key];
     if (p && !p.gone && signed && j.form) showProduct(p);
     else $('lead').textContent = 'Pour noter ton sac, ouvre le lien reçu par SMS après ta livraison.';
+    try { showAlso(j, key); } catch (e) { }
   }).catch(function () {
     $('lead').textContent = 'Page indisponible pour le moment. Réessaie dans un instant.';
   });
