@@ -47,6 +47,8 @@
   .grid a:active { transform: scale(.97); }
   .grid img { width: 100%; aspect-ratio: 1; object-fit: cover; height: auto; border-radius: 12px; background: var(--blush); margin-bottom: 8px; display: block; }
   .grid .nm { flex: 1; padding: 0 2px; overflow-wrap: anywhere; }
+  .grid .pr { margin-top: 6px; font-size: 15px; font-weight: 600; color: var(--text); }
+  .grid .pr s { font-size: 12.5px; font-weight: 400; color: var(--muted); margin-left: 6px; }
   .grid .go { margin-top: 8px; font-size: 13px; font-weight: 600; color: var(--burgundy); }
   .also .all { margin-top: 12px; background: #fff; color: var(--burgundy); border: 1.5px solid var(--blush-deep); }
   .done { text-align: center; padding: 8px 4px; }
@@ -213,30 +215,58 @@
     $('form').hidden = false;
   }
 
-  // "Tu vas aussi aimer": up to 4 other bags from masarrah.shop, chosen by review-map.js for each bag (its related
-  // products in Converty, then the same category). Without a known bag: the first 4 of the shop. No prices here
-  // (this list is not live; the shop page shows the current price).
+  // "Tu vas aussi aimer": up to 4 other bags from masarrah.shop. review-map.js lists up to 6 candidates per bag in
+  // p.json (its related products in Converty, then the same category); without a known bag, the shop's first ones.
+  // Each candidate's product page on masarrah.shop is read live (the shop allows it: Access-Control-Allow-Origin *)
+  // for the current price, and a bag the shop no longer sells (hidden, deleted, out of stock) is skipped.
+  // If the shop can't be reached in time, the cards show without a price rather than an old one.
   var UTM = '?utm_source=review&utm_medium=sms&utm_campaign=avis';
+  function live(slug) {
+    var ctl = window.AbortController ? new AbortController() : null;
+    var t = setTimeout(function () { if (ctl) ctl.abort(); }, 5000);
+    return fetch('https://masarrah.shop/product/' + encodeURIComponent(slug), ctl ? { signal: ctl.signal } : {})
+      .then(function (r) { if (!r.ok) throw 0; return r.text(); })
+      .then(function (h) {
+        var m = h.match(/<script[^>]*id="productData"[^>]*>([\s\S]*?)<\/script>/);
+        if (!m) throw 0;
+        var d = JSON.parse(m[1]), st = d.newStock || {};
+        var sells = d.status === 'shown' && !d.isDeleted && !(d.trackStock && st.outOfStock && !st.continueSellingWhenOutOfStock);
+        return { sells: sells, price: +d.price, was: +d.comparePrice };
+      })
+      .catch(function () { return null; })
+      .then(function (x) { clearTimeout(t); return x; });
+  }
+  function dt(n) { return n.toFixed(2) + ' DT'; }
   function showAlso(j, k) {
-    var ps = j.products || {}, own = k && ps[k], picks = [];
-    var ok = function (x) { var p = ps[x]; return p && !p.gone && p.slug && x !== k && picks.indexOf(x) < 0; };
-    ((own && own.also) || []).forEach(function (x) { if (ok(x)) picks.push(x); });
-    Object.keys(ps).forEach(function (x) { if (picks.length < 4 && ok(x)) picks.push(x); });
-    picks = picks.slice(0, 4);
-    if (picks.length < 2) return;
-    var g = $('alsoGrid'); g.textContent = '';
-    picks.forEach(function (x) {
-      var p = ps[x], a = document.createElement('a');
-      a.href = 'https://masarrah.shop/product/' + encodeURIComponent(p.slug) + UTM;
-      var im = document.createElement('img');
-      im.src = p.img || '/logo.webp'; im.alt = ''; im.loading = 'lazy'; im.decoding = 'async'; im.width = 180; im.height = 180;
-      im.onerror = function () { this.onerror = null; this.src = '/logo.webp'; };
-      var nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = p.name;
-      var go = document.createElement('span'); go.className = 'go'; go.textContent = 'Voir le sac ›';
-      a.appendChild(im); a.appendChild(nm); a.appendChild(go); g.appendChild(a);
+    var ps = j.products || {}, own = k && ps[k], cand = [];
+    var ok = function (x) { var p = ps[x]; return p && !p.gone && p.slug && x !== k && cand.indexOf(x) < 0; };
+    ((own && own.also) || []).forEach(function (x) { if (ok(x)) cand.push(x); });
+    Object.keys(ps).forEach(function (x) { if (cand.length < 6 && ok(x)) cand.push(x); });
+    cand = cand.slice(0, 6);
+    Promise.all(cand.map(function (x) { return live(ps[x].slug); })).then(function (info) {
+      var picks = [];
+      cand.forEach(function (x, i) { if (picks.length < 4 && !(info[i] && !info[i].sells)) picks.push([x, info[i]]); });
+      if (picks.length < 2) return;
+      var g = $('alsoGrid'); g.textContent = '';
+      picks.forEach(function (pi) {
+        var p = ps[pi[0]], l = pi[1], a = document.createElement('a');
+        a.href = 'https://masarrah.shop/product/' + encodeURIComponent(p.slug) + UTM;
+        var im = document.createElement('img');
+        im.src = p.img || '/logo.webp'; im.alt = ''; im.loading = 'lazy'; im.decoding = 'async'; im.width = 180; im.height = 180;
+        im.onerror = function () { this.onerror = null; this.src = '/logo.webp'; };
+        var nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = p.name;
+        a.appendChild(im); a.appendChild(nm);
+        if (l && l.price > 0) {
+          var pr = document.createElement('span'); pr.className = 'pr'; pr.textContent = dt(l.price);
+          if (l.was > l.price) { var w = document.createElement('s'); w.textContent = dt(l.was); pr.appendChild(w); }
+          a.appendChild(pr);
+        }
+        var go = document.createElement('span'); go.className = 'go'; go.textContent = 'Voir le sac ›';
+        a.appendChild(go); g.appendChild(a);
+      });
+      $('alsoAll').href = 'https://masarrah.shop/' + UTM;
+      $('also').hidden = false;
     });
-    $('alsoAll').href = 'https://masarrah.shop/' + UTM;
-    $('also').hidden = false;
   }
 
   fetch('/p.json', { cache: 'no-cache' }).then(function (r) { return r.json(); }).then(function (j) {
