@@ -138,7 +138,8 @@
   var dec = decode(path);
   if (dec) { token = path; keys = dec.keys; multi = dec.multi; preName = dec.name; signed = true; }
   else if (q) { token = q; var parts = q.split('.'); keys = [parts[0].toLowerCase()]; signed = parts.length === 3; }
-  var data = null, bags = [];
+  // multi: the link is a several-bag code (answers go as "<code>:<key>"); many: several bags actually shown.
+  var data = null, bags = [], many = false, sending = false;
   var $ = function (id) { return document.getElementById(id); };
   var STAR = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l2.9 6.1 6.6.8-4.9 4.6 1.3 6.5L12 17.3l-5.9 3.2 1.3-6.5L2.5 9.4l6.6-.8z"/></svg>';
   var CAM = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>';
@@ -155,6 +156,7 @@
   } catch (e) { }
 
   function refreshSend() {
+    if (sending) return;   // the button and its label belong to the send in progress
     var n = bags.filter(function (b) { return b.rating > 0; }).length;
     $('send').disabled = n === 0;
     $('sendlabel').textContent = bags.length > 1 && n > 1 ? 'Envoyer mes ' + n + ' avis' : 'Envoyer mon avis';
@@ -186,15 +188,16 @@
     var b = { key: key, rating: 0, photo: '', root: el('div', 'bag') };
     var prod = el('div', 'prod'), im = el('img'), txt = el('div');
     im.src = p.img || '/logo.webp'; im.alt = p.name;
-    txt.appendChild(el('b', null, p.name)); txt.appendChild(el('span', null, multi ? 'Dans ton colis' : 'Ton sac Masarrah'));
+    txt.appendChild(el('b', null, p.name)); txt.appendChild(el('span', null, many ? 'Dans ton colis' : 'Ton sac Masarrah'));
     prod.appendChild(im); prod.appendChild(txt); b.root.appendChild(prod);
-    if (!multi) b.root.appendChild(el('p', 'label', 'Ta note'));
-    var stars = el('div', 'stars'), hint = el('div', 'hint', multi ? 'Touche les étoiles pour noter ce sac' : '');
+    if (!many) b.root.appendChild(el('p', 'label', 'Ta note'));
+    var stars = el('div', 'stars'), hint = el('div', 'hint', many ? 'Touche les étoiles pour noter ce sac' : '');
     stars.setAttribute('role', 'radiogroup'); stars.setAttribute('aria-label', 'Ta note sur 5 pour ' + p.name);
     for (var i = 1; i <= 5; i++) {
       var s = el('button'); s.type = 'button'; s.setAttribute('role', 'radio'); s.setAttribute('aria-label', i + ' sur 5 : ' + LABELS[i]);
       s.dataset.v = i; s.innerHTML = STAR;
       s.addEventListener('click', function () {
+        if (sending || b.sent) return;   // fixed while it is being sent, and once sent
         var v = +this.dataset.v; b.rating = v;
         [].forEach.call(stars.children, function (x) { x.classList.toggle('on', +x.dataset.v <= v); x.setAttribute('aria-checked', +x.dataset.v === v); });
         hint.textContent = LABELS[v]; refreshSend();
@@ -203,14 +206,14 @@
     }
     b.root.appendChild(stars); b.root.appendChild(hint);
     b.comment = el('textarea'); b.comment.maxLength = 300;
-    b.comment.placeholder = multi ? 'Un mot sur ce sac ? (facultatif)' : "Qu'est-ce que tu as aimé ? (facultatif)";
+    b.comment.placeholder = many ? 'Un mot sur ce sac ? (facultatif)' : "Qu'est-ce que tu as aimé ? (facultatif)";
     var count = el('div', 'count', '0 / 300');
     b.comment.addEventListener('input', function () { count.textContent = this.value.length + ' / 300'; });
     b.root.appendChild(b.comment); b.root.appendChild(count);
     var ph = el('div', 'photo'), file = el('input'), add = el('button', 'photo-add'), prev = el('div', 'photo-prev'),
         pimg = el('img'), del = el('button', null, '×'), msg = el('div', 'photo-msg');
     file.type = 'file'; file.accept = 'image/*'; file.hidden = true;
-    add.type = 'button'; add.innerHTML = CAM; add.appendChild(document.createTextNode(multi ? ' Photo de ce sac (facultatif)' : ' Ajouter une photo de ton sac (facultatif)'));
+    add.type = 'button'; add.innerHTML = CAM; add.appendChild(document.createTextNode(many ? ' Photo de ce sac (facultatif)' : ' Ajouter une photo de ton sac (facultatif)'));
     prev.hidden = true; pimg.alt = 'Ta photo'; del.type = 'button'; del.setAttribute('aria-label', 'Retirer la photo'); msg.hidden = true;
     prev.appendChild(pimg); prev.appendChild(del);
     add.addEventListener('click', function () { file.click(); });
@@ -242,18 +245,23 @@
     return fetch(f.action, { method: 'POST', mode: 'no-cors', body: body });
   }
   $('send').addEventListener('click', function () {
+    if (sending) return;
     var todo = bags.filter(function (b) { return b.rating > 0 && !b.sent; });
     if (!todo.length || !data || !data.form || !signed) return;
+    sending = true;
     $('send').disabled = true;
-    var i = 0, total = bags.filter(function (b) { return b.rating > 0; }).length;
+    var i = 0;
     (function next() {
       if (i >= todo.length) {
+        sending = false;
+        var total = bags.filter(function (b) { return b.sent; }).length;
         $('form').hidden = true; $('done').hidden = false; $('title').textContent = total > 1 ? 'Avis envoyés' : 'Avis envoyé'; $('lead').hidden = true;
         if (total > 1) $('donetext').textContent = 'Tes ' + total + ' avis sont bien reçus. Ils seront sur la page de chaque sac d\'ici quelques minutes.';
         return;
       }
       $('sendlabel').textContent = todo.length > 1 ? 'Envoi ' + (i + 1) + ' / ' + todo.length + '…' : 'Envoi…';
-      post(todo[i]).then(function () { todo[i].sent = true; i++; next(); }).catch(function () {
+      post(todo[i]).then(function () { todo[i].sent = true; todo[i].root.style.opacity = '.6'; i++; next(); }).catch(function () {
+        sending = false;
         refreshSend();
         $('note').textContent = 'Pas de connexion : réessaie dans un instant' + (i > 0 ? ' (' + i + ' avis déjà envoyé' + (i > 1 ? 's' : '') + ').' : '.');
       });
@@ -262,7 +270,8 @@
 
   function showBags(list) {
     var box = $('bags'); box.textContent = '';
-    if (multi) { $('form').classList.add('multi'); $('lead').textContent = 'Il y a ' + list.length + ' sacs dans ton colis : note ceux que tu veux, un seul suffit.'; }
+    many = list.length > 1;
+    if (many) { $('form').classList.add('multi'); $('lead').textContent = 'Il y a ' + list.length + ' sacs dans ton colis : note ceux que tu veux, un seul suffit.'; }
     bags = list.map(function (x) { var b = bagBlock(x[0], x[1]); box.appendChild(b.root); return b; });
     $('form').hidden = false;
     refreshSend();
