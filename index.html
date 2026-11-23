@@ -7,7 +7,7 @@
 <meta name="description" content="Note ton sac Masarrah en un clic.">
 <meta name="theme-color" content="#FBE8EF">
 <meta name="robots" content="noindex">
-<link rel="icon" href="logo.webp">
+<link rel="icon" href="/logo.webp">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
@@ -54,7 +54,7 @@
 </head>
 <body>
 <main>
-  <img class="logo" src="logo.webp" alt="Masarrah" width="96" height="96">
+  <img class="logo" src="/logo.webp" alt="Masarrah" width="96" height="96">
   <h1 id="title">Ton avis compte</h1>
   <p class="lead" id="lead">Une note, un petit mot : ça aide les autres filles à choisir.</p>
 
@@ -86,9 +86,24 @@
 
 <script>
   var LABELS = ['', 'Déçue', 'Bof', 'Bien', 'Très bien', 'Je l’adore'];
-  // ?<bag>.<order>.<signature>: the link of the review SMS, signed by the shop app for one order and one bag.
-  var token = (location.search.replace(/^\?/, '').split(/[&=]/)[0] || '').replace(/[^A-Za-z0-9._-]/g, '');
-  var parts = token.split('.'), key = parts[0].toLowerCase(), signed = parts.length === 3;
+  // review.masarrah.shop/<code>: one short code per client, made by the shop app. Its first 5 characters are the
+  // app's check (only the app can make them); the rest is "<key length><bag key><first name>" scrambled with them,
+  // so the link shows nothing readable. Same algorithm as Reviews.token() in the app. (?bag.order.sig = older links.)
+  var A36 = '0123456789abcdefghijklmnopqrstuvwxyz';
+  function decode(t) {
+    if (!/^[0-9a-z]{7,30}$/.test(t)) return null;
+    var c5 = t.slice(0, 5), p = '';
+    for (var i = 5; i < t.length; i++) { var j = i - 5; p += A36.charAt((((A36.indexOf(t[i]) - A36.indexOf(c5[j % 5]) - 7 * j) % 36) + 36) % 36); }
+    var n = p.charCodeAt(0) - 48;
+    if (n < 1 || n > 4 || p.length < 1 + n) return null;
+    return { key: p.slice(1, 1 + n), name: p.slice(1 + n) };
+  }
+  var path = location.pathname.replace(/^\/+|\/+$/g, '').toLowerCase();
+  var q = (location.search.replace(/^\?/, '').split(/[&=]/)[0] || '').replace(/[^A-Za-z0-9._-]/g, '');
+  var token = '', key = '', signed = false, preName = '';
+  var dec = decode(path);
+  if (dec) { token = path; key = dec.key; preName = dec.name; signed = true; }
+  else if (q) { token = q; var parts = q.split('.'); key = parts[0].toLowerCase(); signed = parts.length === 3; }
   var data = null, rating = 0;
   var $ = function (id) { return document.getElementById(id); };
 
@@ -106,10 +121,14 @@
     $('hint').textContent = LABELS[v];
     $('send').disabled = false;
   }
-  // #Prénom: the first name the app knows. After '#', so the browser never sends it to any server. Editable.
+  // The first name from the code (older links: after '#'). Editable.
   try {
-    var pre = decodeURIComponent(location.hash.replace(/^#/, '')).replace(/[^A-Za-zÀ-ÿ' -]/g, '').trim().slice(0, 30);
-    if (pre && !$('name').value) $('name').value = pre;
+    var pre = preName || decodeURIComponent(location.hash.replace(/^#/, '')).replace(/[^A-Za-zÀ-ÿ' -]/g, '').trim().slice(0, 30);
+    if (pre) {
+      pre = pre.charAt(0).toUpperCase() + pre.slice(1);
+      if (!$('name').value) $('name').value = pre;
+      $('title').textContent = pre + ', ton avis compte';
+    }
   } catch (e) { }
   $('comment').addEventListener('input', function () { $('count').textContent = this.value.length + ' / 300'; });
 
@@ -135,11 +154,11 @@
   });
 
   function showProduct(p) {
-    $('pimg').src = p.img || 'logo.webp'; $('pimg').alt = p.name; $('pname').textContent = p.name;
+    $('pimg').src = p.img || '/logo.webp'; $('pimg').alt = p.name; $('pname').textContent = p.name;
     $('form').hidden = false;
   }
 
-  fetch('p.json', { cache: 'no-cache' }).then(function (r) { return r.json(); }).then(function (j) {
+  fetch('/p.json', { cache: 'no-cache' }).then(function (r) { return r.json(); }).then(function (j) {
     data = j;
     var p = key && j.products[key];
     if (p && !p.gone && signed && j.form) showProduct(p);
