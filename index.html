@@ -48,6 +48,13 @@
   .done p { color: var(--muted); line-height: 1.5; margin: 6px 0; }
   footer { margin-top: auto; padding-top: 24px; font-size: 13px; color: var(--muted); }
   footer a { color: var(--burgundy); text-decoration: none; font-weight: 500; }
+  .photo { margin-top: 12px; }
+  .photo-add { appearance: none; width: 100%; min-height: 52px; border: 1.5px dashed var(--blush-deep); border-radius: 14px; background: #fff; color: var(--burgundy); font: 600 15px/1 Inter, system-ui, sans-serif; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; }
+  .photo-add:active { transform: scale(.98); }
+  .photo-prev { position: relative; width: 112px; height: 112px; margin-top: 2px; }
+  .photo-prev img { width: 112px; height: 112px; object-fit: cover; border-radius: 14px; display: block; }
+  .photo-prev button { position: absolute; top: -8px; right: -8px; width: 30px; height: 30px; border-radius: 50%; border: 0; background: var(--burgundy); color: #fff; font: 600 16px/1 Inter, system-ui, sans-serif; cursor: pointer; }
+  .photo-msg { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
   [hidden] { display: none !important; }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
@@ -67,11 +74,20 @@
     <input id="name" maxlength="30" autocomplete="given-name" placeholder="Ex. Amira">
     <textarea id="comment" maxlength="300" placeholder="Qu'est-ce que tu as aimé ? (facultatif)"></textarea>
     <div class="count" id="count">0 / 300</div>
+    <div class="photo">
+      <input type="file" id="file" accept="image/*" hidden>
+      <button type="button" class="photo-add" id="photoAdd">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        Ajouter une photo de ton sac (facultatif)
+      </button>
+      <div class="photo-prev" id="photoPrev" hidden><img id="photoImg" alt="Ta photo"><button type="button" id="photoDel" aria-label="Retirer la photo">×</button></div>
+      <div class="photo-msg" id="photoMsg" hidden></div>
+    </div>
     <button class="btn" id="send" disabled>
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg>
       <span id="sendlabel">Envoyer mon avis</span>
     </button>
-    <p class="note" id="note">Ton prénom, ta note et ton mot apparaîtront sur la page du sac, sur masarrah.shop.</p>
+    <p class="note" id="note">Ton prénom, ta note, ton mot et ta photo apparaîtront sur la page du sac, sur masarrah.shop.</p>
   </section>
 
 
@@ -132,6 +148,33 @@
   } catch (e) { }
   $('comment').addEventListener('input', function () { $('count').textContent = this.value.length + ' / 300'; });
 
+  // Photo: shrunk on the phone to a small JPEG (22 KB at most: Google Forms takes about 32 000 characters per answer)
+  // and sent after the comment, behind a blank line and "[photo]". The canvas also drops the photo's metadata (place, date).
+  var photo = '', MAX = 30000;
+  $('photoAdd').addEventListener('click', function () { $('file').click(); });
+  $('photoDel').addEventListener('click', function () { photo = ''; $('photoPrev').hidden = true; $('photoAdd').hidden = false; $('file').value = ''; });
+  $('file').addEventListener('change', function () {
+    var f = this.files && this.files[0];
+    if (!f) return;
+    $('photoMsg').hidden = false; $('photoMsg').textContent = 'Préparation de la photo…';
+    var img = new Image(), url = URL.createObjectURL(f);
+    img.onload = function () {
+      URL.revokeObjectURL(url);
+      var out = '';
+      for (var side = 640; side >= 240 && !out; side -= 80) {
+        var k = Math.min(1, side / Math.max(img.naturalWidth, img.naturalHeight));
+        var cv = document.createElement('canvas');
+        cv.width = Math.round(img.naturalWidth * k); cv.height = Math.round(img.naturalHeight * k);
+        var g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height); g.drawImage(img, 0, 0, cv.width, cv.height);
+        for (var q = 0.8; q >= 0.4 && !out; q -= 0.1) { var d = cv.toDataURL('image/jpeg', q); if (d.length <= MAX) out = d; }
+      }
+      if (!out) { $('photoMsg').textContent = 'Cette photo ne passe pas : essaie une autre.'; return; }
+      photo = out; $('photoImg').src = out; $('photoPrev').hidden = false; $('photoAdd').hidden = true; $('photoMsg').hidden = true;
+    };
+    img.onerror = function () { $('photoMsg').textContent = 'Photo illisible : essaie une autre.'; };
+    img.src = url;
+  });
+
   function clean(s) { return (s || '').replace(/[\r\n]+/g, ' ').replace(/\s{2,}/g, ' ').trim(); }
 
   // The answer goes to a Google Form; the shop app reads the answers, checks the signature and that the order was
@@ -142,7 +185,7 @@
     body.append(f.fields.t, token);
     body.append(f.fields.r, String(rating));
     body.append(f.fields.n, clean($('name').value));
-    body.append(f.fields.c, clean($('comment').value));
+    body.append(f.fields.c, clean($('comment').value) + (photo ? '\n\n[photo]' + photo : ''));
     $('send').disabled = true; $('sendlabel').textContent = 'Envoi…';
     // Google Forms sends no CORS headers: the answer is recorded, the reply just can't be read (no-cors).
     fetch(f.action, { method: 'POST', mode: 'no-cors', body: body }).then(function () {
